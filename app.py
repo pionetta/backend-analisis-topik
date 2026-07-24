@@ -6,6 +6,7 @@ import json
 import uuid
 import sqlite3
 try:
+    # pyrefly: ignore [missing-import]
     import libsql_experimental as libsql_turso
 except ImportError:
     libsql_turso = None
@@ -14,19 +15,23 @@ import threading
 import pandas as pd
 import numpy as np
 
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.float32, np.float64, np.complex128, np.complex64)):
+            if isinstance(obj, (np.complex128, np.complex64)):
+                return float(obj.real)
+            return float(obj)
+        if isinstance(obj, (np.int32, np.int64)):
+            return int(obj)
+        if isinstance(obj, complex):
+            return float(obj.real)
+        return super(NumpyEncoder, self).default(obj)
+
 def clean_for_json(obj):
-    if isinstance(obj, dict):
-        return {k: clean_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [clean_for_json(v) for v in obj]
-    elif hasattr(obj, 'item'):
-        val = obj.item()
-        if isinstance(val, complex):
-            return float(val.real)
-        return val
-    elif isinstance(obj, complex):
-        return float(obj.real)
-    return obj
+    # Fallback cleaner just in case
+    return json.loads(json.dumps(obj, cls=NumpyEncoder))
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -269,7 +274,7 @@ def _run_find_optimal_k(task_id, title, min_k, max_k, tokens, corpus, id2word, r
             db_key  = f"{title}_k{k}"
             cursor.execute(
                 'INSERT OR REPLACE INTO movie_analysis (id_title, result_data) VALUES (?, ?)',
-                (db_key, json.dumps(payload))
+                (db_key, json.dumps(payload, cls=NumpyEncoder))
             )
         conn.commit()
         conn.close()
@@ -572,7 +577,7 @@ def task_status(task_id):
         with _tasks_lock:
             _tasks.pop(task_id, None)
 
-    return jsonify({"status": "success", "data": task})
+    return jsonify({"status": "success", "data": clean_for_json(task)})
 
 
 # ==========================================
@@ -610,12 +615,12 @@ def analyze():
         cursor = conn.cursor()
         cursor.execute(
             'INSERT OR REPLACE INTO movie_analysis (id_title, result_data) VALUES (?, ?)',
-            (db_key, json.dumps(result_payload))
+            (db_key, json.dumps(result_payload, cls=NumpyEncoder))
         )
         conn.commit()
         conn.close()
 
-        return jsonify({"status": "success", "data": result_payload})
+        return jsonify({"status": "success", "data": clean_for_json(result_payload)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -810,7 +815,6 @@ def serve_react(path):
 
 if __name__ == '__main__':
     # Baca PORT dari environment variable.
-    # Di HuggingFace Spaces, port wajib 7860.
     # Di lokal (dev), default ke 5000.
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=(port == 5000), host='0.0.0.0', port=port, threaded=True)
