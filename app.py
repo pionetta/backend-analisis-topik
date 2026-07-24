@@ -12,6 +12,21 @@ except ImportError:
 
 import threading
 import pandas as pd
+import numpy as np
+
+def clean_for_json(obj):
+    if isinstance(obj, dict):
+        return {k: clean_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(v) for v in obj]
+    elif hasattr(obj, 'item'):
+        val = obj.item()
+        if isinstance(val, complex):
+            return float(val.real)
+        return val
+    elif isinstance(obj, complex):
+        return float(obj.real)
+    return obj
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -206,15 +221,20 @@ def _build_lda_payload(title: str, k: int, tokens, corpus, id2word, raw_texts):
     payload = {
         "title":                title,
         "num_topics":           k,
-        "coherence_score":      round(coh_score, 4),
-        "perplexity_score":     round(perp_score, 4),
+        "coherence_score":      coh_score,
+        "perplexity_score":     perp_score,
         "topics":               topics_data,
         "overall_distribution": overall_distribution,
         "document_distributions": doc_distributions,
         "vis_html":             vis_html,
         "interpretations":      interpretations,
     }
-    return payload, coh_score, perp_score
+    payload = clean_for_json(payload)
+    if isinstance(payload["coherence_score"], float):
+        payload["coherence_score"] = round(payload["coherence_score"], 4)
+    if isinstance(payload["perplexity_score"], float):
+        payload["perplexity_score"] = round(payload["perplexity_score"], 4)
+    return payload, payload["coherence_score"], payload["perplexity_score"]
 
 
 # ==========================================
