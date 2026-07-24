@@ -19,19 +19,25 @@ class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        if isinstance(obj, (np.float32, np.float64, np.complex128, np.complex64)):
-            if isinstance(obj, (np.complex128, np.complex64)):
-                return float(obj.real)
-            return float(obj)
-        if isinstance(obj, (np.int32, np.int64)):
-            return int(obj)
-        if isinstance(obj, complex):
+        if hasattr(obj, 'item'):
+            val = obj.item()
+            if isinstance(val, complex) or 'complex' in type(val).__name__.lower():
+                return float(val.real)
+            return val
+        if isinstance(obj, complex) or 'complex' in type(obj).__name__.lower():
             return float(obj.real)
         return super(NumpyEncoder, self).default(obj)
 
+# [KRITIKAL] Monkey-patch global json.dumps agar pyLDAvis dan pustaka lain
+# tidak pernah crash saat bertemu numpy.complex128 atau tipe numpy lainnya.
+_original_json_dumps = json.dumps
+def patched_json_dumps(*args, **kwargs):
+    kwargs['cls'] = NumpyEncoder
+    return _original_json_dumps(*args, **kwargs)
+json.dumps = patched_json_dumps
+
 def clean_for_json(obj):
-    # Fallback cleaner just in case
-    return json.loads(json.dumps(obj, cls=NumpyEncoder))
+    return json.loads(json.dumps(obj))
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
